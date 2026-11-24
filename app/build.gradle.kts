@@ -34,7 +34,7 @@ android {
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } }
     androidResources { noCompress += "bin" } // 模型不壓縮，讀取更快
     buildFeatures { compose = true }
-    packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+    packaging { resources { excludes += listOf("/META-INF/{AL2.0,LGPL2.1}", "/META-INF/*.md", "/META-INF/*.txt") } }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
