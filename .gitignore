@@ -1,0 +1,10 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.cxx/
+.externalNativeBuild/
+# 由 GitHub Actions 下載，不放進倉庫
+app/src/main/cpp/whisper.cpp/
+app/src/main/assets/models/

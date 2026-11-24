@@ -1,0 +1,82 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 需要這個權限才能把 APK 放到 Releases
+
+env:
+  WHISPER_CPP_VERSION: v1.9.6
+  MODEL: ggml-small-q5_1.bin
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: 下載 whisper.cpp
+        run: git clone --depth 1 --branch "$WHISPER_CPP_VERSION" https://github.com/ggml-org/whisper.cpp app/src/main/cpp/whisper.cpp
+
+      - name: 快取 Whisper 模型
+        uses: actions/cache@v4
+        with:
+          path: models-cache
+          key: whisper-models-${{ env.MODEL }}-tiny
+
+      - name: 下載 Whisper 模型
+        run: |
+          mkdir -p models-cache app/src/main/assets/models
+          base=https://huggingface.co/ggerganov/whisper.cpp/resolve/main
+          [ -s "models-cache/$MODEL" ] || curl -L --fail --retry 3 -o "models-cache/$MODEL" "$base/$MODEL"
+          [ -s models-cache/ggml-tiny.bin ] || curl -L --fail --retry 3 -o models-cache/ggml-tiny.bin "$base/ggml-tiny.bin"
+          cp "models-cache/$MODEL" app/src/main/assets/models/
+          ls -lh app/src/main/assets/models/
+
+      - name: 測試 Whisper 介面（在電腦上用 tiny 模型實際辨識一次）
+        run: |
+          cmake -S app/src/main/cpp -B hostbuild -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="-I$JAVA_HOME/include -I$JAVA_HOME/include/linux"
+          cmake --build hostbuild -j4
+          javac -d hostbuild/java tools/WhisperBridgeTest.java
+          java -Dlib="$PWD/hostbuild/libnihongo_whisper.so" -cp hostbuild/java \
+            com.ice.nihongo.whisper.WhisperLib models-cache/ggml-tiny.bin \
+            app/src/main/cpp/whisper.cpp/samples/jfk.wav
+
+      - name: 邏輯單元測試
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: 編譯 APK
+        run: |
+          gradle assembleDebug --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk nihongo-app.apk
+          ls -lh nihongo-app.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nihongo-app-apk
+          path: nihongo-app.apk
+
+      - name: 發佈到 Releases（手機可以直接下載）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: 日文學習 App 第 ${{ github.run_number }} 版
+          body: 直接下載下面的 nihongo-app.apk，傳到手機安裝即可。
+          files: nihongo-app.apk
+          make_latest: true
