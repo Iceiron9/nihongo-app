@@ -24,6 +24,16 @@ android {
         }
     }
 
+    // 固定的簽章：每次 GitHub 編譯出的 APK 簽章都一樣，手機才能直接覆蓋更新、不會清掉學習紀錄
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             // 讓 C++ 也用最佳化編譯，不然 Whisper 會慢很多
