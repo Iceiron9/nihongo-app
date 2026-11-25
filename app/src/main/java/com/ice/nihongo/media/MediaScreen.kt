@@ -22,7 +22,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,10 +60,12 @@ fun MediaScreen() {
     val engine = remember { WhisperEngine(ctx.applicationContext) }
     val s = MediaState
 
-    fun nameOf(uri: Uri): String =
-        ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+    fun nameOf(uri: Uri): String {
+        val raw = ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null
-        }?.substringBeforeLast('.') ?: "未命名"
+        } ?: return "未命名"
+        return TextSniffer.title(raw)
+    }
 
     suspend fun show(segs: List<Segment>) {
         val corrector = Corrector(KuromojiAnalyzer.shared)
@@ -75,57 +76,66 @@ fun MediaScreen() {
         }
         s.lines.clear(); s.lines.addAll(segs)
         s.words.clear(); s.words.addAll(w)
+        s.added.clear()
     }
 
-    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null || s.busy) return@rememberLauncherForActivityResult
+    suspend fun transcribe(uri: Uri) {
+        s.status = "解碼音訊…"
+        val audio = withContext(Dispatchers.IO) {
+            AudioDecoder.decode(ctx, uri) { pct -> s.status = "解碼音訊… $pct%" }
+        }
+        s.status = "載入 Whisper 模型（第一次比較久）…"
+        withContext(Dispatchers.IO) { engine.load() }
+        val segs = withContext(Dispatchers.Default) {
+            Transcriber(engine, Corrector(KuromojiAnalyzer.shared))
+                .run(audio, s.source) { msg -> s.status = msg }
+        }
+        show(segs)
+        s.status = if (segs.isEmpty()) "沒有辨識到日文，可以改匯入這首歌的字幕或歌詞檔"
+        else "完成！共 ${segs.size} 句，點單字加入單字卡"
+    }
+
+    /** 同一個按鈕：看檔案內容自動判斷是影音還是字幕，不看副檔名 */
+    fun importFile(uri: Uri) {
+        if (s.busy) return
         s.source = nameOf(uri)
         s.busy = true
         scope.launch {
             try {
-                s.status = "解碼音訊…"
-                val audio = withContext(Dispatchers.IO) {
-                    AudioDecoder.decode(ctx, uri) { pct -> s.status = "解碼音訊… $pct%" }
+                s.status = "讀取檔案…"
+                if (withContext(Dispatchers.IO) { AudioDecoder.hasAudio(ctx, uri) }) {
+                    transcribe(uri)
+                    return@launch
                 }
-                s.status = "載入 Whisper 模型（第一次比較久）…"
-                withContext(Dispatchers.IO) { engine.load() }
-                val segs = withContext(Dispatchers.Default) {
-                    Transcriber(engine, Corrector(KuromojiAnalyzer.shared))
-                        .run(audio, s.source) { msg -> s.status = msg }
+                val text = withContext(Dispatchers.IO) { TextSniffer.read(ctx, uri) }
+                val segs = text?.let { SubtitleImport.parse(it) }.orEmpty()
+                if (segs.isEmpty()) {
+                    s.status = "這個檔案不是音樂、影片，也不是字幕或歌詞"
+                } else {
+                    show(segs)
+                    s.status = "已匯入字幕／歌詞 ${segs.size} 句"
                 }
-                show(segs)
-                s.status = if (segs.isEmpty()) "沒有辨識到日文，可以改用「匯入字幕／歌詞」"
-                else "完成！共 ${segs.size} 句，點單字加入單字卡"
             } catch (e: Throwable) {
-                s.status = "發生錯誤：${e.message}"
+                s.status = "發生錯誤：${e.message ?: e.javaClass.simpleName}"
             } finally {
                 s.busy = false
             }
         }
     }
 
-    val pickSub = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null || s.busy) return@rememberLauncherForActivityResult
-        s.source = nameOf(uri)
-        scope.launch {
-            try {
-                val text = withContext(Dispatchers.IO) {
-                    ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() }.toString(Charsets.UTF_8)
-                }
-                val segs = SubtitleImport.parse(text)
-                show(segs)
-                s.status = "已匯入 ${segs.size} 句"
-            } catch (e: Throwable) {
-                s.status = "無法讀取：${e.message}"
-            }
-        }
+    // 選單顯示所有檔案；只篩 audio/video 的話，副檔名被改錯的影片會被藏起來
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importFile(uri)
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { pickMedia.launch(arrayOf("audio/*", "video/*")) }, enabled = !s.busy) { Text("匯入影音") }
-            OutlinedButton(onClick = { pickSub.launch(arrayOf("*/*")) }, enabled = !s.busy) { Text("匯入字幕／歌詞") }
+        Button(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
+            Text("匯入檔案")
         }
+        Text(
+            "歌曲、影片（mp3、mp4…）或字幕、歌詞（srt、lrc、txt）都可以，App 會自動判斷",
+            style = MaterialTheme.typography.bodySmall, color = Color.Gray
+        )
         Spacer(Modifier.width(8.dp))
         Text(s.status, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
         if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())

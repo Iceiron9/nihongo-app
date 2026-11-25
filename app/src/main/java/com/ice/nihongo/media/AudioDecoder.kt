@@ -14,6 +14,24 @@ import java.nio.ByteOrder
  */
 object AudioDecoder {
 
+    /**
+     * 看檔案「內容」判斷有沒有聲音軌，不看副檔名。
+     * 所以就算檔名是 xxx.mp4.txt 這種被改錯的，也認得出是影片。
+     */
+    fun hasAudio(ctx: Context, uri: Uri): Boolean {
+        val ex = MediaExtractor()
+        return try {
+            ex.setDataSource(ctx, uri, null)
+            (0 until ex.trackCount).any {
+                ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            }
+        } catch (e: Exception) {
+            false
+        } finally {
+            ex.release()
+        }
+    }
+
     fun decode(ctx: Context, uri: Uri, progress: (Int) -> Unit = {}): FloatArray {
         val ex = MediaExtractor()
         ex.setDataSource(ctx, uri, null)

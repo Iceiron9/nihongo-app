@@ -147,6 +147,15 @@ private fun runAll(): Int {
     expect("有匯入後優先出匯入的題目", picks.all { it == "さくらがさいた" || it == "よぞらにほしがひかる" }, picks)
     expect("不會連續出同一題", (1..20).map { TypingPool.next() }.zipWithNext().none { it.first == it.second })
 
+    // ---------- 匯入：判斷檔案類型、檔名 ----------
+    val mp4Head = byteArrayOf(0, 0, 0, 0x20) + "ftypisomiso2avc1mp41".toByteArray() + ByteArray(200) { (it * 7).toByte() }
+    expect("影片（就算叫 .txt）不會被當成字幕", TextSniffer.decode(mp4Head) == null)
+    expect("SRT 字幕認得是文字", TextSniffer.decode("1\n00:00:01,000 --> 00:00:02,000\n桜\n".toByteArray()) != null)
+    expect("UTF-8 BOM 的歌詞認得是文字", TextSniffer.decode(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "夜空に\n星が光る".toByteArray()) != null)
+    expect("空檔案不是字幕", TextSniffer.decode(ByteArray(0)) == null)
+    expect("歌名.mp4.txt → 歌名", TextSniffer.title("wowaka - Unknown Mother-Goose ft. Hatsune Miku 360p_h264.mp4.txt") == "wowaka - Unknown Mother-Goose ft. Hatsune Miku 360p_h264", TextSniffer.title("wowaka - Unknown Mother-Goose ft. Hatsune Miku 360p_h264.mp4.txt"))
+    expect("一般檔名只去一層", TextSniffer.title("夜に駆ける.mp3") == "夜に駆ける" && TextSniffer.title("lyrics.txt") == "lyrics" && TextSniffer.title("noext") == "noext")
+
     println(if (fails == 0) "\n全部通過" else "\n失敗 $fails 項")
     return fails
 }
