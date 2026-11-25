@@ -8,7 +8,7 @@
 | --- | --- |
 | 影音 | 匯入歌曲或影片，用 Whisper 在手機上離線轉成日文字幕；點單字加進單字卡。辨識不好時，可改匯入 SRT／VTT／LRC 字幕或純文字歌詞 |
 | 五十音 | 平假名、片假名（含濁音、拗音）卡片，自動排程複習 |
-| 單字 | 從影音挑出或自己新增的單字，自動排程複習 |
+| 單字 | 「複習」自動排程；「清單」搜尋、刪除全部單字；「單字包」一鍵加入 JLPT N5（710 字）、N4（666 字）與歌曲單字，每天最多 20 個新字 |
 | 打字 | 九宮格（12 鍵）日文輸入練習，題目來自匯入的歌詞與單字 |
 
 ## 自動校正（離線）
@@ -26,4 +26,5 @@
 
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp)（MIT）
 - [Kuromoji](https://github.com/atilika/kuromoji)（Apache 2.0）
+- JLPT 單字表：[open-anki-jlpt-decks](https://github.com/jamsinclair/open-anki-jlpt-decks)（MIT，原始資料來自 tanos.co.uk），中文意思為本專案翻譯
 - Jetpack Compose、Room

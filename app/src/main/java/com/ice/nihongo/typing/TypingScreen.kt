@@ -36,6 +36,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ice.nihongo.data.AppDb
+import com.ice.nihongo.data.Packs
 
 /** 一個九宮格按鍵：點一下或往四個方向滑 */
 @Composable
@@ -89,8 +90,7 @@ fun TypingScreen() {
 
     // 單字卡的讀音也拿來當題目
     LaunchedEffect(Unit) {
-        extra = dao.recent("vocab", 200).map { it.back.substringBefore(' ').substringBefore('　') }
-            .filter { r -> r.length >= 2 && r.all { it in 'ぁ'..'ゖ' || it == 'ー' } }
+        extra = dao.recent("vocab", 300).mapNotNull { Packs.readingOf(it.front, it.back) }.distinct()
         if (TypingPool.size() == 0 && extra.isNotEmpty()) target = TypingPool.next(extra)
     }
 

@@ -6,6 +6,9 @@ import com.ice.nihongo.data.*
 import com.ice.nihongo.kana.KanaData
 import com.ice.nihongo.media.*
 import com.ice.nihongo.typing.*
+import com.ice.nihongo.data.Pack
+import com.ice.nihongo.data.PackWord
+import com.ice.nihongo.data.Packs
 
 private var fails = 0
 private fun expect(name: String, ok: Boolean, info: Any? = "") { if (ok) println("✓ $name") else { fails++; println("✗ $name  $info") } }
@@ -155,6 +158,42 @@ private fun runAll(): Int {
     expect("空檔案不是字幕", TextSniffer.decode(ByteArray(0)) == null)
     expect("歌名.mp4.txt → 歌名", TextSniffer.title("wowaka - Unknown Mother-Goose ft. Hatsune Miku 360p_h264.mp4.txt") == "wowaka - Unknown Mother-Goose ft. Hatsune Miku 360p_h264", TextSniffer.title("wowaka - Unknown Mother-Goose ft. Hatsune Miku 360p_h264.mp4.txt"))
     expect("一般檔名只去一層", TextSniffer.title("夜に駆ける.mp3") == "夜に駆ける" && TextSniffer.title("lyrics.txt") == "lyrics" && TextSniffer.title("noext") == "noext")
+
+    // ---------- 單字包 ----------
+    val pk = Packs.parse("\uFEFF# 測試包\n桜\tさくら\t櫻花\nああ\tああ\t啊\n壞行\n\n桜\tさくら\t重複\n")
+    expect("單字包解析：標題、略過壞行", pk.title == "測試包" && pk.words.size == 3, pk)
+    expect("背面：讀音換行中文；純假名只放中文", Packs.back(pk.words[0]) == "さくら\n櫻花" && Packs.back(pk.words[1]) == "啊")
+    val day = Scheduler.DAY
+    val big = Pack("大包", (1..45).map { PackWord("字$it", "よみ", "意思") })
+    val cs = Packs.toCards(big, setOf("字1", "字2"), 1000L)
+    expect("跳過已經有的字", cs.size == 43 && cs.none { it.front == "字1" })
+    expect("每天 20 個新字分散排程", cs[0].due == 1000L && cs[19].due == 1000L && cs[20].due == 1000L + day && cs[42].due == 1000L + 2 * day, cs.map { it.due }.distinct())
+    expect("卡片記錄出處、都是單字卡", cs.all { it.source == "大包" && it.deck == "vocab" && it.reps == 0 })
+    expect("同一包重複的字只加一次", Packs.toCards(pk, emptySet(), 0L).size == 2)
+    expect("第二包接在第一包後面", Packs.startAt(5 * day, day) == 6 * day && Packs.startAt(null, day) == day && Packs.startAt(0L, day) == day)
+    expect("背完天數", Packs.days(43) == 3 && Packs.days(40) == 2 && Packs.days(0) == 0)
+    expect("打字讀音：從背面第一行取", Packs.readingOf("桜", "さくら\n櫻花") == "さくら")
+    expect("打字讀音：多種讀法取第一個", Packs.readingOf("私", "わたし／わたくし\n我") == "わたし")
+    expect("打字讀音：純假名的字用正面、片假名轉平假名", Packs.readingOf("ああ", "啊") == "ああ" && Packs.readingOf("テレビ", "電視") == "てれび")
+    expect("打字讀音：歌曲挑的字（背面只有讀音）", Packs.readingOf("咲く", "さく") == "さく")
+    expect("打字讀音：找不到就不用", Packs.readingOf("～円", "～えん\n圓") == null)
+    expect("清單日期文字", com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b", due = 0L), 100L) == "新卡・今天" &&
+        com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b", due = 100L + 3 * day + 5), 100L) == "新卡・3 天後開始" &&
+        com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b", reps = 2, due = 100L + 6 * day + 5), 100L) == "6 天後複習")
+
+    // 內建的單字包檔案都要能正確讀取
+    val dir = listOf("src/main/assets/packs", "app/src/main/assets/packs").map { java.io.File(it) }.firstOrNull { it.isDirectory }
+    expect("找得到單字包資料夾", dir != null)
+    val files = dir?.listFiles { f -> f.name.endsWith(".tsv") }.orEmpty().sortedBy { it.name }
+    expect("內建 3 個單字包", files.size == 3, files.map { it.name })
+    for (f in files) {
+        val text = f.readText()
+        val p = Packs.parse(text)
+        val dataLines = text.lines().count { it.isNotBlank() && !it.startsWith("#") }
+        expect("${f.name}：每一行都有讀音和中文（${p.words.size} 字）", p.words.size == dataLines && p.words.all { it.reading.isNotBlank() && it.meaning.isNotBlank() }, dataLines)
+        expect("${f.name}：沒有重複的字", p.words.map { it.front }.toSet().size == p.words.size)
+    }
+    expect("N5 約 700 字、N4 約 660 字", files.map { Packs.parse(it.readText()).words.size }.let { it.contains(710) && it.contains(666) && it.contains(74) }, files.map { Packs.parse(it.readText()).words.size })
 
     println(if (fails == 0) "\n全部通過" else "\n失敗 $fails 項")
     return fails

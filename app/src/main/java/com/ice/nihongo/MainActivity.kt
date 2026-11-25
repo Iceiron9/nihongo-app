@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.ice.nihongo.data.ReviewScreen
 import com.ice.nihongo.media.MediaScreen
 import com.ice.nihongo.typing.TypingScreen
+import com.ice.nihongo.vocab.VocabScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,7 +53,7 @@ fun AppRoot() {
             when (sel) {
                 0 -> MediaScreen()
                 1 -> ReviewScreen("kana")
-                2 -> ReviewScreen("vocab")
+                2 -> VocabScreen()
                 else -> TypingScreen()
             }
         }
