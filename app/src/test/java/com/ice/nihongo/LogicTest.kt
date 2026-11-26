@@ -185,7 +185,7 @@ private fun runAll(): Int {
     val dir = listOf("src/main/assets/packs", "app/src/main/assets/packs").map { java.io.File(it) }.firstOrNull { it.isDirectory }
     expect("找得到單字包資料夾", dir != null)
     val files = dir?.listFiles { f -> f.name.endsWith(".tsv") }.orEmpty().sortedBy { it.name }
-    expect("內建 3 個單字包", files.size == 3, files.map { it.name })
+    expect("內建 6 個單字包", files.size == 6, files.map { it.name })
     for (f in files) {
         val text = f.readText()
         val p = Packs.parse(text)
@@ -193,7 +193,17 @@ private fun runAll(): Int {
         expect("${f.name}：每一行都有讀音和中文（${p.words.size} 字）", p.words.size == dataLines && p.words.all { it.reading.isNotBlank() && it.meaning.isNotBlank() }, dataLines)
         expect("${f.name}：沒有重複的字", p.words.map { it.front }.toSet().size == p.words.size)
     }
-    expect("N5 約 700 字、N4 約 660 字", files.map { Packs.parse(it.readText()).words.size }.let { it.contains(710) && it.contains(666) && it.contains(74) }, files.map { Packs.parse(it.readText()).words.size })
+    val sizes = files.associate { it.name to Packs.parse(it.readText()).words.size }
+    expect("各單字包字數（N5 710、N4 666、N3 2103、N2 1896、N1 2685、歌曲 74）",
+        sizes == mapOf("jlpt_n1.tsv" to 2685, "jlpt_n2.tsv" to 1896, "jlpt_n3.tsv" to 2103, "jlpt_n4.tsv" to 666, "jlpt_n5.tsv" to 710, "song_unknown_mother_goose.tsv" to 74), sizes)
+    val titles = files.map { Packs.parse(it.readText()).title }
+    expect("單字包標題不重複", titles.toSet().size == titles.size, titles)
+    expect("單字包排序 N5 → N1 → 歌曲", files.map { it.name }.sortedWith(compareBy({ com.ice.nihongo.vocab.packOrder(it) }, { it })) ==
+        listOf("jlpt_n5.tsv", "jlpt_n4.tsv", "jlpt_n3.tsv", "jlpt_n2.tsv", "jlpt_n1.tsv", "song_unknown_mother_goose.tsv"))
+    val n3 = Packs.parse(files.first { it.name == "jlpt_n3.tsv" }.readText()).words.associateBy { it.front }
+    expect("N3 抽查：意外＝いがい・意外、迷惑＝めいわく", n3["意外"]?.reading == "いがい" && n3["迷惑"]?.meaning?.contains("麻煩") == true, n3["意外"])
+    val n1 = Packs.parse(files.first { it.name == "jlpt_n1.tsv" }.readText()).words.associateBy { it.front }
+    expect("N1 抽查：把握＝はあく・掌握；括號註解已清掉", n1["把握"]?.meaning == "掌握" && n1.keys.none { it.contains('(') || it.contains('（') }, n1["把握"])
 
     println(if (fails == 0) "\n全部通過" else "\n失敗 $fails 項")
     return fails

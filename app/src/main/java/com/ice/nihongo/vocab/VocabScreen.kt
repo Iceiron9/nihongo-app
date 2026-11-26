@@ -143,6 +143,10 @@ private fun WordList() {
 
 private data class PackEntry(val file: String, val pack: Pack)
 
+/** 單字包排序：N5 → N1，其他（歌曲）排在後面 */
+fun packOrder(file: String): Int =
+    listOf("jlpt_n5", "jlpt_n4", "jlpt_n3", "jlpt_n2", "jlpt_n1").indexOf(file.removeSuffix(".tsv")).let { if (it < 0) 99 else it }
+
 @Composable
 private fun PackList(onAdded: () -> Unit) {
     val ctx = LocalContext.current
@@ -155,7 +159,8 @@ private fun PackList(onAdded: () -> Unit) {
 
     LaunchedEffect(Unit) {
         packs = withContext(Dispatchers.IO) {
-            (ctx.assets.list("packs") ?: emptyArray()).filter { it.endsWith(".tsv") }.sorted().map { f ->
+            (ctx.assets.list("packs") ?: emptyArray()).filter { it.endsWith(".tsv") }
+                .sortedWith(compareBy({ packOrder(it) }, { it })).map { f ->
                 PackEntry(f, Packs.parse(ctx.assets.open("packs/$f").use { it.readBytes() }.toString(Charsets.UTF_8)))
             }
         }
