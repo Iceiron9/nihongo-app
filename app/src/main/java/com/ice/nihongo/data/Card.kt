@@ -1,5 +1,6 @@
 package com.ice.nihongo.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -14,5 +15,9 @@ data class Card(
     val ease: Double = 2.5,
     val interval: Int = 0,      // 天
     val reps: Int = 0,
-    val due: Long = 0L          // 0 = 新卡，馬上可以複習
-)
+    val due: Long = 0L,         // 下次複習時間
+    @ColumnInfo(defaultValue = "0")
+    val introduced: Long = 0L   // 第一次學的時間；0 = 還沒學過的新卡
+) {
+    val isNew get() = introduced == 0L
+}

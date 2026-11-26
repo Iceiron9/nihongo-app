@@ -9,8 +9,6 @@ data class PackWord(val front: String, val reading: String, val meaning: String)
 data class Pack(val title: String, val words: List<PackWord>)
 
 object Packs {
-    const val NEW_PER_DAY = 20
-
     fun parse(text: String): Pack {
         var title = ""
         val words = mutableListOf<PackWord>()
@@ -32,32 +30,10 @@ object Packs {
     fun back(w: PackWord): String =
         if (w.reading.isEmpty() || w.reading == w.front) w.meaning else "${w.reading}\n${w.meaning}"
 
-    /**
-     * 把單字包轉成卡片，跳過已經有的字。
-     * 新卡分散排程：每天最多 perDay 個新字，不會一次塞爆複習。
-     * startAt = 第一批新字開始的時間（接在之前加入的單字包後面）。
-     */
-    fun toCards(
-        pack: Pack,
-        existing: Set<String>,
-        startAt: Long,
-        perDay: Int = NEW_PER_DAY
-    ): List<Card> {
-        val fresh = pack.words.filter { it.front !in existing }.distinctBy { it.front }
-        return fresh.mapIndexed { i, w ->
-            Card(
-                deck = "vocab", front = w.front, back = back(w), source = pack.title,
-                due = startAt + (i / perDay) * Scheduler.DAY
-            )
-        }
-    }
-
-    /** 新單字包要從什麼時候開始：之前的新字還沒排完，就接在後面 */
-    fun startAt(lastNewDue: Long?, now: Long): Long =
-        if (lastNewDue != null && lastNewDue > now) lastNewDue + Scheduler.DAY else now
-
-    /** 背完需要幾天 */
-    fun days(count: Int, perDay: Int = NEW_PER_DAY) = (count + perDay - 1) / perDay
+    /** 把單字包轉成卡片，跳過已經有的字。新卡不排日期，每天依「每日新字數」依序出現。 */
+    fun toCards(pack: Pack, existing: Set<String>): List<Card> =
+        pack.words.filter { it.front !in existing }.distinctBy { it.front }
+            .map { w -> Card(deck = "vocab", front = w.front, back = back(w), source = pack.title) }
 
     /** 卡片的平假名讀音（打字練習用），找不到回傳 null */
     fun readingOf(front: String, back: String): String? {

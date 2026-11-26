@@ -9,6 +9,7 @@ import com.ice.nihongo.typing.*
 import com.ice.nihongo.data.Pack
 import com.ice.nihongo.data.PackWord
 import com.ice.nihongo.data.Packs
+import com.ice.nihongo.data.Plan
 
 private var fails = 0
 private fun expect(name: String, ok: Boolean, info: Any? = "") { if (ok) println("✓ $name") else { fails++; println("✗ $name  $info") } }
@@ -165,21 +166,42 @@ private fun runAll(): Int {
     expect("背面：讀音換行中文；純假名只放中文", Packs.back(pk.words[0]) == "さくら\n櫻花" && Packs.back(pk.words[1]) == "啊")
     val day = Scheduler.DAY
     val big = Pack("大包", (1..45).map { PackWord("字$it", "よみ", "意思") })
-    val cs = Packs.toCards(big, setOf("字1", "字2"), 1000L)
+    val cs = Packs.toCards(big, setOf("字1", "字2"))
     expect("跳過已經有的字", cs.size == 43 && cs.none { it.front == "字1" })
-    expect("每天 20 個新字分散排程", cs[0].due == 1000L && cs[19].due == 1000L && cs[20].due == 1000L + day && cs[42].due == 1000L + 2 * day, cs.map { it.due }.distinct())
-    expect("卡片記錄出處、都是單字卡", cs.all { it.source == "大包" && it.deck == "vocab" && it.reps == 0 })
-    expect("同一包重複的字只加一次", Packs.toCards(pk, emptySet(), 0L).size == 2)
-    expect("第二包接在第一包後面", Packs.startAt(5 * day, day) == 6 * day && Packs.startAt(null, day) == day && Packs.startAt(0L, day) == day)
-    expect("背完天數", Packs.days(43) == 3 && Packs.days(40) == 2 && Packs.days(0) == 0)
+    expect("單字包的卡都是未學新卡、記錄出處", cs.all { it.source == "大包" && it.deck == "vocab" && it.isNew && it.due == 0L })
+    expect("同一包重複的字只加一次", Packs.toCards(pk, emptySet()).size == 2)
+
+    // ---------- 每日進度（考試日期模式） ----------
+    val t0 = 1_800_000_000_000L
+    expect("距離考試天數", Plan.daysUntil(t0, t0 + 220 * day) == 220 && Plan.daysUntil(t0, t0 - day) == 0 && Plan.daysUntil(t0, t0 + day / 2) == 1)
+    expect("考前一個月學完新字", Plan.learnDays(t0, t0 + 220 * day) == 190)
+    expect("時間太短就不留複習月", Plan.learnDays(t0, t0 + 40 * day) == 40 && Plan.learnDays(t0, t0 - day) == 1)
+    expect("N5～N1 7892 字、220 天後考試 → 每天 42 個", Plan.autoPerDay(7892, t0, t0 + 220 * day) == 42, Plan.autoPerDay(7892, t0, t0 + 220 * day))
+    expect("沒有未學單字 → 0", Plan.autoPerDay(0, t0, t0 + 220 * day) == 0)
+    expect("每天上限 150", Plan.autoPerDay(7892, t0, t0 + 3 * day) == 150)
+    expect("學完天數", Plan.daysToFinish(7892, 20) == 395 && Plan.daysToFinish(7892, 42) == 188 && Plan.daysToFinish(0, 20) == 0)
+    expect("每天時間估計：20 個約 28 分、42 個約 59 分", Plan.minutesPerDay(20) == 28 && Plan.minutesPerDay(42) == 59, Plan.minutesPerDay(42))
+    expect("今天剩幾個新字", Plan.newLeftToday(20, 5) == 15 && Plan.newLeftToday(20, 25) == 0)
+    val tz = java.util.TimeZone.getTimeZone("Asia/Taipei")
+    val noon = 1_800_000_000_000L
+    val sod = Plan.startOfDay(noon, tz)
+    expect("今天 0 點（台北時區）", sod <= noon && noon - sod < day && java.util.Calendar.getInstance(tz).apply { timeInMillis = sod }.get(java.util.Calendar.HOUR_OF_DAY) == 0)
+    expect("複習與新字交錯（每 4 張夾 1 個新字）", Plan.interleave(listOf(1, 2, 3, 4, 5, 6, 7, 8, 9), listOf(-1, -2, -3)) == listOf(1, 2, 3, 4, -1, 5, 6, 7, 8, -2, 9, -3))
+    expect("沒有複習時全是新字", Plan.interleave(emptyList<Int>(), listOf(1, 2)) == listOf(1, 2))
+    val fresh = Card(deck = "vocab", front = "a", back = "b")
+    val learned = Scheduler.review(fresh, 2, t0)
+    expect("第一次學會記錄時間，之後不變", learned.introduced == t0 && !learned.isNew && Scheduler.review(learned, 2, t0 + day).introduced == t0)
+    expect("新卡按重來也算學過", Scheduler.review(fresh, 0, t0).introduced == t0)
+    expect("按鈕預覽不會把卡標記成學過", fresh.isNew && Scheduler.preview(fresh, 2) == "1天")
+
     expect("打字讀音：從背面第一行取", Packs.readingOf("桜", "さくら\n櫻花") == "さくら")
     expect("打字讀音：多種讀法取第一個", Packs.readingOf("私", "わたし／わたくし\n我") == "わたし")
     expect("打字讀音：純假名的字用正面、片假名轉平假名", Packs.readingOf("ああ", "啊") == "ああ" && Packs.readingOf("テレビ", "電視") == "てれび")
     expect("打字讀音：歌曲挑的字（背面只有讀音）", Packs.readingOf("咲く", "さく") == "さく")
     expect("打字讀音：找不到就不用", Packs.readingOf("～円", "～えん\n圓") == null)
-    expect("清單日期文字", com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b", due = 0L), 100L) == "新卡・今天" &&
-        com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b", due = 100L + 3 * day + 5), 100L) == "新卡・3 天後開始" &&
-        com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b", reps = 2, due = 100L + 6 * day + 5), 100L) == "6 天後複習")
+    expect("清單日期文字", com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b"), 100L) == "新卡・還沒學" &&
+        com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b", reps = 1, introduced = 5, due = 50L), 100L) == "今天要複習" &&
+        com.ice.nihongo.vocab.dueText(Card(deck = "vocab", front = "a", back = "b", reps = 2, introduced = 5, due = 100L + 6 * day + 5), 100L) == "6 天後複習")
 
     // 內建的單字包檔案都要能正確讀取
     val dir = listOf("src/main/assets/packs", "app/src/main/assets/packs").map { java.io.File(it) }.firstOrNull { it.isDirectory }

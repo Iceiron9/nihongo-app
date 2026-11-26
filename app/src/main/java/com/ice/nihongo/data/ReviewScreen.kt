@@ -40,10 +40,19 @@ fun ReviewScreen(deck: String) {
     var showBack by remember(deck) { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     var total by remember(deck) { mutableStateOf(0) }
+    var remaining by remember(deck) { mutableStateOf(0) }
+    val settings = remember { StudySettings(ctx) }
 
     suspend fun reload() {
         if (deck == "kana") AppDb.seedKana(dao)
-        queue = dao.dueCards(deck, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        remaining = dao.newRemaining(deck)
+        // 單字：每天限額；五十音：一次最多 50 個新的
+        val limit = if (deck == "vocab")
+            Plan.newLeftToday(settings.perDay(remaining, now), dao.introducedSince(deck, Plan.startOfDay(now)))
+        else 50
+        val news = dao.newCards(deck, limit)
+        queue = Plan.interleave(dao.dueReviews(deck, now), news)
         total = dao.count(deck)
         showBack = false
     }
@@ -55,10 +64,16 @@ fun ReviewScreen(deck: String) {
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                (if (deck == "kana") "五十音" else "單字") + "　待複習 ${queue?.size ?: 0}／共 $total 張",
-                style = MaterialTheme.typography.titleMedium
-            )
+            Column {
+                Text(
+                    (if (deck == "kana") "五十音" else "單字") + "　今天還有 ${queue?.size ?: 0} 張",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    "新字 ${queue?.count { it.isNew } ?: 0}・複習 ${queue?.count { !it.isNew } ?: 0}・未學 $remaining／共 $total",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray
+                )
+            }
             if (deck == "vocab") OutlinedButton(onClick = { adding = !adding }) { Text(if (adding) "取消" else "＋新增") }
         }
 
@@ -81,6 +96,10 @@ fun ReviewScreen(deck: String) {
         if (card == null) {
             Spacer(Modifier.height(80.dp))
             Text("今天的複習完成了！🎉", style = MaterialTheme.typography.headlineSmall)
+            if (deck == "vocab" && remaining > 0) {
+                Spacer(Modifier.height(12.dp))
+                Text("明天會再出新字。想調整每天的數量，到「單字包」設定。", textAlign = TextAlign.Center)
+            }
             if (deck == "vocab" && total == 0) {
                 Spacer(Modifier.height(12.dp))
                 Text("到「影音」分頁匯入歌曲或字幕，點單字就會加進來。", textAlign = TextAlign.Center)

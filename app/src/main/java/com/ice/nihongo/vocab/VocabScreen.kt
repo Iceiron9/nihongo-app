@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card as UiCard
 import androidx.compose.material3.HorizontalDivider
@@ -26,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +47,8 @@ import com.ice.nihongo.data.AppDb
 import com.ice.nihongo.data.Card
 import com.ice.nihongo.data.Pack
 import com.ice.nihongo.data.Packs
+import com.ice.nihongo.data.Plan
+import com.ice.nihongo.data.StudySettings
 import com.ice.nihongo.data.ReviewScreen
 import com.ice.nihongo.data.Scheduler
 import kotlinx.coroutines.Dispatchers
@@ -70,8 +77,8 @@ fun VocabScreen() {
 fun dueText(c: Card, now: Long = System.currentTimeMillis()): String {
     val days = ((c.due - now) / Scheduler.DAY).toInt()
     return when {
-        c.due <= now -> if (c.reps == 0) "新卡・今天" else "今天要複習"
-        c.reps == 0 -> "新卡・$days 天後開始"
+        c.isNew -> "新卡・還沒學"
+        c.due <= now -> "今天要複習"
         days == 0 -> "今天稍後"
         else -> "$days 天後複習"
     }
@@ -151,11 +158,13 @@ fun packOrder(file: String): Int =
 private fun PackList(onAdded: () -> Unit) {
     val ctx = LocalContext.current
     val dao = remember { AppDb.get(ctx).cards() }
+    val settings = remember { StudySettings(ctx) }
     val scope = rememberCoroutineScope()
     var packs by remember { mutableStateOf<List<PackEntry>>(emptyList()) }
     val added = remember { mutableStateMapOf<String, Int>() }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var remaining by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         packs = withContext(Dispatchers.IO) {
@@ -166,52 +175,115 @@ private fun PackList(onAdded: () -> Unit) {
         }
         val have = dao.fronts("vocab").toSet()
         packs.forEach { e -> added[e.file] = e.pack.words.count { it.front in have } }
+        remaining = dao.newRemaining("vocab")
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text(
-            "加入後每天最多出現 ${Packs.NEW_PER_DAY} 個新單字，跟著「複習」分頁每天背就好。",
-            style = MaterialTheme.typography.bodySmall, color = Color.Gray
-        )
-        if (message.isNotEmpty()) {
-            Text(message, color = Color(0xFF1976D2), modifier = Modifier.padding(vertical = 8.dp))
-        }
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(packs, key = { it.file }) { e ->
-                val total = e.pack.words.size
-                val have = added[e.file] ?: 0
-                UiCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(e.pack.title, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "$total 個單字・例如：" + e.pack.words.take(4).joinToString("、") { it.front },
-                            style = MaterialTheme.typography.bodySmall, color = Color.Gray
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        if (have >= total) {
-                            OutlinedButton(onClick = onAdded) { Text("已全部加入・看清單") }
-                        } else {
-                            Button(enabled = !busy, onClick = {
-                                busy = true
-                                scope.launch {
-                                    val existing = dao.fronts("vocab").toSet()
-                                    val now = System.currentTimeMillis()
-                                    val start = Packs.startAt(dao.lastNewDue("vocab"), now)
-                                    val cards = Packs.toCards(e.pack, existing, start)
-                                    dao.insertAll(cards)
-                                    added[e.file] = total
-                                    val skipped = total - cards.size
-                                    message = "已加入 ${cards.size} 個單字" +
-                                        (if (skipped > 0) "（$skipped 個本來就有，跳過）" else "") +
-                                        "，大約 ${Packs.days(cards.size)} 天背完新字"
-                                    busy = false
-                                }
-                            }) { Text(if (have > 0) "加入剩下的 ${total - have} 個" else "加入") }
-                        }
+    LazyColumn(
+        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item { Spacer(Modifier.height(6.dp)); PlanCard(settings, remaining) }
+        if (message.isNotEmpty()) item { Text(message, color = Color(0xFF1976D2)) }
+        items(packs, key = { it.file }) { e ->
+            val total = e.pack.words.size
+            val have = added[e.file] ?: 0
+            UiCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(e.pack.title, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "$total 個單字・例如：" + e.pack.words.take(4).joinToString("、") { it.front },
+                        style = MaterialTheme.typography.bodySmall, color = Color.Gray
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (have >= total) {
+                        OutlinedButton(onClick = onAdded) { Text("已全部加入・看清單") }
+                    } else {
+                        Button(enabled = !busy, onClick = {
+                            busy = true
+                            scope.launch {
+                                val existing = dao.fronts("vocab").toSet()
+                                val cards = Packs.toCards(e.pack, existing)
+                                dao.insertAll(cards)
+                                added[e.file] = total
+                                remaining = dao.newRemaining("vocab")
+                                val skipped = total - cards.size
+                                message = "已加入 ${cards.size} 個單字" +
+                                    (if (skipped > 0) "（$skipped 個本來就有，跳過）" else "") +
+                                    "，會照上面設定的每日新字數依序出現"
+                                busy = false
+                            }
+                        }) { Text(if (have > 0) "加入剩下的 ${total - have} 個" else "加入") }
                     }
                 }
             }
         }
+        item { Spacer(Modifier.height(16.dp)) }
+    }
+}
+
+private val dateFmt = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.TAIWAN)
+
+/** 每日新字設定：固定數量，或設定考試日期自動計算 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlanCard(settings: StudySettings, remaining: Int) {
+    var fixed by remember { mutableIntStateOf(settings.fixedPerDay) }
+    var exam by remember { mutableLongStateOf(settings.examDate) }
+    var picking by remember { mutableStateOf(false) }
+    val now = System.currentTimeMillis()
+    val useExam = exam > now
+    val perDay = if (useExam) Plan.autoPerDay(remaining, now, exam) else fixed
+    val days = Plan.daysToFinish(remaining, perDay)
+
+    UiCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text("每日進度", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("考試日期：", Modifier.weight(1f))
+                TextButton(onClick = { picking = true }) { Text(if (useExam) dateFmt.format(java.util.Date(exam)) else "未設定") }
+                if (useExam) TextButton(onClick = { exam = 0L; settings.examDate = 0L }) { Text("清除") }
+            }
+            if (useExam) {
+                val left = Plan.daysUntil(now, exam)
+                Text(
+                    "距離考試 $left 天。新字在考前 ${if (left > Plan.BUFFER_DAYS + 14) Plan.BUFFER_DAYS else 0} 天學完，" +
+                        "所以每天要學 $perDay 個",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (perDay >= 60) Text(
+                    "⚠ 每天 $perDay 個新字負擔很重，複習量會到每天 ${Plan.reviewsPerDay(perDay)} 張左右",
+                    color = Color(0xFFD32F2F), style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("每天新字：", Modifier.weight(1f))
+                    OutlinedButton(onClick = { fixed = (fixed - 5).coerceAtLeast(Plan.MIN_PER_DAY); settings.fixedPerDay = fixed }) { Text("−") }
+                    Text("$fixed 個", Modifier.padding(horizontal = 12.dp), fontSize = 18.sp)
+                    OutlinedButton(onClick = { fixed = (fixed + 5).coerceAtMost(Plan.MAX_PER_DAY); settings.fixedPerDay = fixed }) { Text("＋") }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (remaining == 0) "目前沒有未學的單字，先在下面加入單字包。"
+                else "未學 $remaining 個・照這個速度 ${dateFmt.format(java.util.Date(now + days * Scheduler.DAY))} 學完" +
+                    "・每天約 ${Plan.minutesPerDay(perDay)} 分鐘（含複習）",
+                style = MaterialTheme.typography.bodySmall, color = Color.Gray
+            )
+        }
+    }
+
+    if (picking) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = if (exam > now) exam else now + 180 * Scheduler.DAY)
+        DatePickerDialog(
+            onDismissRequest = { picking = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { exam = it; settings.examDate = it }
+                    picking = false
+                }) { Text("確定") }
+            },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text("取消") } }
+        ) { DatePicker(state) }
     }
 }

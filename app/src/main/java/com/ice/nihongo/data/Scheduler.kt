@@ -10,8 +10,10 @@ object Scheduler {
 
     fun review(c: Card, grade: Int, now: Long = System.currentTimeMillis()): Card {
         require(grade in 0..3)
+        val introduced = if (c.introduced == 0L) now else c.introduced
         if (grade == 0) {
             return c.copy(
+                introduced = introduced,
                 reps = 0, interval = 0,
                 ease = maxOf(1.3, c.ease - 0.2),
                 due = now + RELEARN
@@ -26,7 +28,8 @@ object Scheduler {
                 maxOf(c.interval + 1, (c.interval * factor).toInt())
             }
         }
-        return c.copy(ease = ease, interval = interval, reps = c.reps + 1, due = now + interval * DAY)
+        return c.copy(ease = ease, interval = interval, reps = c.reps + 1, due = now + interval * DAY,
+            introduced = introduced)
     }
 
     /** 按鈕上顯示「多久後再複習」 */
